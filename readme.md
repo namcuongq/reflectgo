@@ -1,5 +1,7 @@
 ### Golang PE Loader
 
+*** Only Support x64, not support GUI exe ****
+
 #### Execute .exe file from memory !!!
 
 - Read .exe file
@@ -22,3 +24,7 @@ Params = "localgroup Administrators abcd /delete"
 ```
 
 And Run `reflectgo.exe --config config.toml`
+
+### Download
+
+[reflectgo.exe](https://github.com/namcuongq/reflectgo/releases)
