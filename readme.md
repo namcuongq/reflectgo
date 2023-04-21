@@ -21,4 +21,4 @@ File   = 'C:\Windows\system32\net.exe'
 Params = "localgroup Administrators abcd /delete"
 ```
 
-And Run `a.exe --config config.toml`
+And Run `reflectgo.exe --config config.toml`
