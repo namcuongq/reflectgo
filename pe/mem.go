@@ -7,29 +7,27 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"reflectgo/utils"
 	"syscall"
 	"time"
-	"unicode/utf8"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-type Config struct {
-	File   string
-	Params string
-}
-
 type PeData struct {
-	c              Config
+	file   string
+	params string
+
 	isDebug        bool
 	startAddress   uintptr
 	currentProcess windows.Handle
 }
 
-func New(c Config) (pe *PeData) {
+func New(file, params string) (pe *PeData) {
 	pe = new(PeData)
-	pe.c = c
+	pe.file = file
+	pe.params = params
 	return
 }
 
@@ -52,12 +50,12 @@ func (pe *PeData) Exec() error {
 		return err
 	}
 
-	pe.log("Exec", pe.c.File, pe.c.Params)
+	pe.log("Exec", pe.file, pe.params)
 	return pe.execAsm()
 }
 
 func (pe *PeData) loadPe() error {
-	pSourceBytes, err := os.ReadFile(pe.c.File)
+	pSourceBytes, err := os.ReadFile(pe.file)
 	if err != nil {
 		return err
 	}
@@ -138,11 +136,19 @@ func (pe *PeData) loadPe() error {
 				break
 			}
 
-			by_name := (*PIMAGE_IMPORT_BY_NAME)(unsafe.Pointer(pImageBase + uintptr(fieldThunk.AddressOfData)))
-			funcName := windows.BytePtrToString(&by_name.Name)
-			proc, err := windows.GetProcAddress(libHandler, funcName)
-			if err != nil {
-				return fmt.Errorf("GetProcessAddress %s.%s error: %v\n", libName, funcName, err)
+			proc := uintptr(0)
+			funcName := ""
+
+			if orginThunk.AddressOfData>>63 == 1 { //Import by ordinal
+				proc = uintptr(unsafe.Pointer(uintptr(orginThunk.AddressOfData)))
+				funcName = fmt.Sprintf("%x", orginThunk.AddressOfData)
+			} else {
+				byName := (*PIMAGE_IMPORT_BY_NAME)(unsafe.Pointer(pImageBase + uintptr(fieldThunk.AddressOfData)))
+				funcName = windows.BytePtrToString(&byName.Name)
+				proc, err = windows.GetProcAddress(libHandler, funcName)
+				if err != nil {
+					return fmt.Errorf("GetProcessAddress %s.%s error: %v\n", libName, funcName, err)
+				}
 			}
 
 			pe.log(fmt.Sprintf("\tFix %s to %v", funcName, proc))
@@ -166,9 +172,9 @@ func (pe *PeData) fixAgrs() error {
 		return fmt.Errorf("unable to get executable: %v\n", err)
 	}
 
-	newArgs := `"` + ex + `" ` + pe.c.Params
+	newArgs := `"` + ex + `" ` + pe.params
 	pe.log("New args:", newArgs)
-	param, err := hex.DecodeString(string2Unicode(newArgs))
+	param, err := hex.DecodeString(utils.String2Unicode(newArgs))
 	if err != nil {
 		return fmt.Errorf("Error decoding shellcode: %s\n", err)
 	}
@@ -186,7 +192,7 @@ func (pe *PeData) fixAgrs() error {
 
 	// mov rax, newParamAddr
 	commandLineWUpdate := []byte{0x48, 0xB8}
-	commandLineWUpdate = append(commandLineWUpdate, uintptrToBytes(&newAgrsAddr)...)
+	commandLineWUpdate = append(commandLineWUpdate, utils.UintptrToBytes(&newAgrsAddr)...)
 	commandLineWUpdate = append(commandLineWUpdate, []byte{0xC3}...)
 
 	for _, cmd := range []string{
@@ -271,18 +277,6 @@ func (pe *PeData) log(message ...interface{}) {
 	}
 }
 
-func uintptrToBytes(u *uintptr) []byte {
-	return (*[sizeOfUintPtr]byte)(unsafe.Pointer(u))[:]
-}
-
-func string2Unicode(str string) (r string) {
-	for i := 0; i < len(str); i++ {
-		u, _ := utf8.DecodeRuneInString(fmt.Sprintf("%c", str[i]))
-		r += fmt.Sprintf("%x00", u)
-	}
-	return
-}
-
 // not use
 func runByChangeCommandLineValue() {
 	process, err := windows.GetCurrentProcess()
@@ -297,7 +291,7 @@ func runByChangeCommandLineValue() {
 		panic(err)
 	}
 
-	payload := "01" + string2Unicode("E:\\abcd111111111111 44466666811119 123")
+	payload := "01" + utils.String2Unicode("E:\\abcd111111111111 44466666811119 123")
 	sc, err := hex.DecodeString(payload)
 	if err != nil {
 		fmt.Printf("\nError decoding shellcode: %s\n", err)

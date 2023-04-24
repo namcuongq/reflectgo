@@ -26,7 +26,6 @@ var (
 const (
 	IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16
 	IMAGE_SIZEOF_SHORT_NAME          = 8
-	sizeOfUintPtr                    = unsafe.Sizeof(uintptr(0))
 	x64BIT_BYTE                      = 8
 )
 
