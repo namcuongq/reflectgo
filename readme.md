@@ -1,8 +1,18 @@
-### Golang PE Loader
+# Golang PE Loader
 
-*** Only Support x64, not support GUI exe ****
+*** Only Support x64 ****
 
-#### Execute .exe file from memory !!!
+Features:
+* Support zip with password
+* Support two modes: reflect or process
+
+Common use cases:
+* Stealth and Stealth
+
+## How it works
+*** Mode Reflect or Process ****
+
+### [Reflect] Execute .exe file from memory !!!
 
 - Read .exe file
 - Parse pe file -> IMAGE_DOS_HEADER
@@ -15,16 +25,37 @@
 - Set RIP at IMAGE_NT_HEADERS.OptionalHeader.AddressOfEntryPoint
 - syscall
 
-### Usage
+### [Process] Execute as Process !!!
+
+- Create new suspend process with .exe file
+- Modify memory Where command line arguments are stored
+- Resume process
+
+## Usage
+
+```
+Usage of reflectgo.exe:
+  -c string
+        path of file config (default "config.toml")
+  -m int
+        mode for execute: 0 - reflect || 1 - process
+  -v    enable debug
+```
 
 Create config.toml with content
 ```
-File   = 'C:\Windows\system32\net.exe'
-Params = "localgroup Administrators abcd /delete"
+# <pe file> support .exe or .zip with password
+C:\Windows\system32\net.exe
+# command line argument to .exe
+localgroup Administrators user1 /delete
 ```
 
-And Run `reflectgo.exe --config config.toml`
+And Run `reflectgo.exe -c config.toml`
 
-### Download
+## Download
 
 [reflectgo.exe](https://github.com/namcuongq/reflectgo/releases)
+
+## TODO
+
+* [ ] Event Log

@@ -1,3 +1,4 @@
 *.exe
+*.zip
 test
 config.toml
