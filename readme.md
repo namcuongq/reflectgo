@@ -59,3 +59,6 @@ And Run `reflectgo.exe -c config.toml`
 ## TODO
 
 * [ ] Event Log
+
+## Donation
+A GitHub star if you like it !!!
