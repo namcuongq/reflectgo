@@ -86,12 +86,9 @@ func (p *Proc) Run() error {
 
 func (p *Proc) inheritHandle() error {
 	var (
-		si *syscall.StartupInfo
-		pi *syscall.ProcessInformation
+		si = new(syscall.StartupInfo)
+		pi = new(syscall.ProcessInformation)
 	)
-
-	si = new(syscall.StartupInfo)
-	pi = new(syscall.ProcessInformation)
 
 	sa := syscall.SecurityAttributes{
 		Length:        uint32(unsafe.Sizeof(windows.SecurityAttributes{})),
@@ -188,7 +185,7 @@ func (p *Proc) close() {
 	stdErr := readPipe(windows.Handle(p.stdErrPipeRead))
 	stdOut := readPipe(windows.Handle(p.stdOutPipeRead))
 
-	fmt.Println(stdErr, stdOut)
+	fmt.Printf("%s%s", stdErr, stdOut)
 
 	syscall.CloseHandle(p.stdOutPipeRead)
 	syscall.CloseHandle(p.stdErrPipeRead)
@@ -208,5 +205,6 @@ func readPipe(pipe windows.Handle) string {
 		result += string(buf[:read])
 		err = windows.ReadFile(pipe, buf, &read, nil)
 	}
+
 	return result
 }

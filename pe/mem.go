@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflectgo/utils"
+	"strings"
 	"syscall"
 	"time"
 	"unsafe"
@@ -296,7 +297,6 @@ func (pe *PeData) log(message ...interface{}) {
 
 func (pe *PeData) unZipFile(f string) ([]byte, error) {
 	pe.log("unzip", f)
-	var password string
 	zipr, err := zip.OpenReader(f)
 	if err != nil {
 		return nil, err
@@ -308,14 +308,16 @@ func (pe *PeData) unZipFile(f string) ([]byte, error) {
 
 	z := zipr.File[0]
 	if z.IsEncrypted() {
-		fmt.Printf("password: ")
-		fmt.Scanln(&password)
+		password, err := getPassword()
+		if err != nil {
+			return nil, fmt.Errorf("get password error: %v", err)
+		}
 		z.SetPassword(password)
 	}
 
 	rr, err := z.Open()
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(rr)
@@ -325,6 +327,25 @@ func (pe *PeData) unZipFile(f string) ([]byte, error) {
 	defer rr.Close()
 
 	return buf, nil
+}
+
+func getPassword() (text string, err error) {
+	var modeOn, modeOff uint32
+	stdin := syscall.Handle(os.Stdin.Fd())
+	err = syscall.GetConsoleMode(stdin, &modeOn)
+	if err != nil {
+		return
+	}
+	modeOff = modeOn &^ 0x0004
+	fmt.Printf("password:")
+	_, _, _ = procSetConsoleMode.Call(uintptr(stdin), uintptr(modeOff))
+	_, err = fmt.Scanln(&text)
+	if err != nil {
+		return
+	}
+	_, _, _ = procSetConsoleMode.Call(uintptr(stdin), uintptr(modeOn))
+	fmt.Println()
+	return strings.TrimSpace(text), nil
 }
 
 // not use

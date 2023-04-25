@@ -19,6 +19,7 @@ var (
 	virtualProtect         = kernel32.MustFindProc("VirtualProtect")
 	procReadProcessMemory  = kernel32.MustFindProc("ReadProcessMemory")
 	procWriteProcessMemory = kernel32.MustFindProc("WriteProcessMemory")
+	procSetConsoleMode     = kernel32.MustFindProc("SetConsoleMode")
 
 	kernelbase = syscall.MustLoadDLL("kernelbase.dll")
 )

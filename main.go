@@ -1,17 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"os"
 	"reflectgo/inject"
 	"reflectgo/pe"
-
-	"github.com/BurntSushi/toml"
+	"strings"
 )
 
 var (
-	conf       Config
 	configPath string
 	mode       int
 	isDebug    bool
@@ -24,16 +23,21 @@ type Config struct {
 
 func main() {
 	flag.Parse()
-
-	_, err := toml.DecodeFile(configPath, &conf)
+	file, params, err := getConfig(configPath)
 	if err != nil {
 		fmt.Println("parse file config error", err)
 		os.Exit(1)
 	}
 
 	switch mode {
-	case 0:
-		m := pe.New(conf.File, conf.Params)
+	case 1:
+		p := inject.New(file, params)
+		err = p.Run()
+		if err != nil {
+			fmt.Println(err)
+		}
+	default:
+		m := pe.New(file, params)
 		if isDebug {
 			m.Debug()
 		}
@@ -42,12 +46,37 @@ func main() {
 		if err != nil {
 			fmt.Println(err)
 		}
-	case 1:
-		p := inject.New(conf.File, conf.Params)
-		fmt.Println(p.Run())
-	default:
-		fmt.Println("Not Support!")
 	}
+}
+
+func getConfig(path string) (string, string, error) {
+	readFile, err := os.Open(path)
+	if err != nil {
+		return "", "", err
+	}
+	fileScanner := bufio.NewScanner(readFile)
+	fileScanner.Split(bufio.ScanLines)
+	var commands []string
+
+	for fileScanner.Scan() {
+		text := fileScanner.Text()
+		if strings.HasPrefix(text, "#") {
+			continue
+		}
+		commands = append(commands, text)
+		if len(commands) >= 2 {
+			break
+		}
+	}
+	readFile.Close()
+	lenCommand := len(commands)
+	if lenCommand < 1 {
+		return "", "", fmt.Errorf("no pe file")
+	} else if lenCommand == 1 {
+		commands = append(commands, "")
+	}
+
+	return strings.TrimSpace(commands[0]), strings.TrimSpace(commands[1]), nil
 }
 
 func init() {
