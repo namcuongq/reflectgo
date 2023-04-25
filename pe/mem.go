@@ -310,7 +310,6 @@ func (pe *PeData) unZipFile(f string) ([]byte, error) {
 	if z.IsEncrypted() {
 		fmt.Printf("password: ")
 		fmt.Scanln(&password)
-		fmt.Println(password)
 		z.SetPassword(password)
 	}
 
