@@ -44,7 +44,7 @@ func main() {
 		}
 	case 1:
 		p := inject.New(conf.File, conf.Params)
-		p.Run()
+		fmt.Println(p.Run())
 	default:
 		fmt.Println("Not Support!")
 	}
@@ -52,6 +52,6 @@ func main() {
 
 func init() {
 	flag.StringVar(&configPath, "c", "config.toml", "path of file config")
-	flag.BoolVar(&isDebug, "debug", false, "enable debug")
-	flag.IntVar(&mode, "mode", 0, "mode for execute: 0 - reflect || 1 - process")
+	flag.BoolVar(&isDebug, "v", false, "enable debug")
+	flag.IntVar(&mode, "m", 0, "mode for execute: 0 - reflect || 1 - process")
 }

@@ -82,6 +82,7 @@ func (pe *PeData) loadPe() error {
 		pImageBase = VirtualAlloc(uintptr(0), int(pOldNtHeader.OptionalHeader.SizeOfImage), windows.MEM_COMMIT|windows.MEM_RESERVE, windows.PAGE_EXECUTE_READWRITE)
 	}
 	pOldNtHeader.OptionalHeader.ImageBase = ULONGLONG(pImageBase)
+	pe.log("ImageBase at", unsafe.Pointer(pImageBase))
 
 	//write header
 	WriteMemory(pImageBase, pSourceBytes, uintptr(pOldNtHeader.OptionalHeader.SizeOfHeaders))
