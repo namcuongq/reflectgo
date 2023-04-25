@@ -5,13 +5,16 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"reflectgo/utils"
 	"syscall"
 	"time"
 	"unsafe"
 
+	"github.com/alexmullins/zip"
 	"golang.org/x/sys/windows"
 )
 
@@ -55,7 +58,20 @@ func (pe *PeData) Exec() error {
 }
 
 func (pe *PeData) loadPe() error {
-	pSourceBytes, err := os.ReadFile(pe.file)
+	var (
+		pSourceBytes []byte
+		err          error
+	)
+
+	ext := filepath.Ext(pe.file)
+	if ext == ".zip" {
+		pSourceBytes, err = pe.unZipFile(pe.file)
+		if err != nil {
+			return err
+		}
+	}
+
+	pSourceBytes, err = os.ReadFile(pe.file)
 	if err != nil {
 		return err
 	}
@@ -276,6 +292,39 @@ func (pe *PeData) log(message ...interface{}) {
 		fmt.Printf("%s", time.Now().Format("02-01-2006 15:04:05 - "))
 		fmt.Println(message...)
 	}
+}
+
+func (pe *PeData) unZipFile(f string) ([]byte, error) {
+	pe.log("unzip", f)
+	var password string
+	zipr, err := zip.OpenReader(f)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(zipr.File) < 1 {
+		return nil, fmt.Errorf("zip file is empty")
+	}
+
+	z := zipr.File[0]
+	if z.IsEncrypted() {
+		fmt.Printf("password: ")
+		fmt.Scanln(&password)
+		z.SetPassword(password)
+	}
+
+	rr, err := z.Open()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	buf, err := ioutil.ReadAll(rr)
+	if err != nil {
+		return nil, err
+	}
+	defer rr.Close()
+
+	return buf, nil
 }
 
 // not use
