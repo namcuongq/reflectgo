@@ -69,11 +69,11 @@ func (pe *PeData) loadPe() error {
 		if err != nil {
 			return err
 		}
-	}
-
-	pSourceBytes, err = os.ReadFile(pe.file)
-	if err != nil {
-		return err
+	} else {
+		pSourceBytes, err = os.ReadFile(pe.file)
+		if err != nil {
+			return err
+		}
 	}
 
 	var pImageHeader IMAGE_DOS_HEADER
@@ -310,6 +310,7 @@ func (pe *PeData) unZipFile(f string) ([]byte, error) {
 	if z.IsEncrypted() {
 		fmt.Printf("password: ")
 		fmt.Scanln(&password)
+		fmt.Println(password)
 		z.SetPassword(password)
 	}
 
