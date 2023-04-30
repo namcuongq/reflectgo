@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -32,6 +33,7 @@ func New(file, params string) (pe *PeData) {
 	pe = new(PeData)
 	pe.file = file
 	pe.params = params
+
 	return
 }
 
@@ -56,6 +58,10 @@ func (pe *PeData) Exec() error {
 
 	pe.log("Exec", pe.file, pe.params)
 	return pe.execAsm()
+}
+
+func nop() {
+	fmt.Printf("")
 }
 
 func (pe *PeData) loadPe() error {
@@ -96,12 +102,14 @@ func (pe *PeData) loadPe() error {
 	oldPeAddress := pOldNtHeader.OptionalHeader.ImageBase
 	pImageBase := VirtualAlloc(uintptr(oldPeAddress), int(pOldNtHeader.OptionalHeader.SizeOfImage), windows.MEM_COMMIT|windows.MEM_RESERVE, windows.PAGE_EXECUTE_READWRITE)
 	if pImageBase == 0 {
+		nop()
 		pImageBase = VirtualAlloc(uintptr(0), int(pOldNtHeader.OptionalHeader.SizeOfImage), windows.MEM_COMMIT|windows.MEM_RESERVE, windows.PAGE_EXECUTE_READWRITE)
 	}
 	pOldNtHeader.OptionalHeader.ImageBase = ULONGLONG(pImageBase)
 	pe.log("ImageBase at", unsafe.Pointer(pImageBase))
 
 	//write header
+	nop()
 	WriteMemory(pImageBase, pSourceBytes, uintptr(pOldNtHeader.OptionalHeader.SizeOfHeaders))
 
 	sectionHeaderOffset := uint16(uintptr(pImageHeader.E_lfanew) + unsafe.Sizeof(IMAGE_NT_HEADERS{}.Signature) + unsafe.Sizeof(IMAGE_NT_HEADERS{}.FileHeader) + unsafe.Sizeof(IMAGE_NT_HEADERS{}.OptionalHeader))
@@ -184,28 +192,41 @@ func (pe *PeData) loadPe() error {
 	return nil
 }
 
+func (pe *PeData) cmd2Hex(newArgs string) []byte {
+	param, err := hex.DecodeString(utils.String2Unicode(newArgs))
+	if err != nil {
+		pe.log("Error decoding shellcode:", err)
+		return nil
+	}
+
+	return param
+}
+
 func (pe *PeData) fixAgrs() error {
 	ex, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("unable to get executable: %v\n", err)
+		return errors.New("unable to get executable: " + err.Error())
 	}
 
 	newArgs := `"` + ex + `" ` + pe.params
 	pe.log("New args:", newArgs)
-	param, err := hex.DecodeString(utils.String2Unicode(newArgs))
-	if err != nil {
-		return fmt.Errorf("Error decoding shellcode: %s\n", err)
+
+	param := pe.cmd2Hex(newArgs)
+	// param, err := hex.DecodeString(utils.String2Unicode(newArgs))
+	if param == nil {
+		return errors.New("Error decoding shellcode: " + err.Error())
 	}
 
 	newAgrsAddr, err := windows.VirtualAlloc(uintptr(0), uintptr(len(param)), windows.MEM_COMMIT|windows.MEM_RESERVE, syscall.PAGE_READWRITE)
 	if err != nil {
-		return fmt.Errorf("alloc memory error: %v", err)
+		return errors.New("alloc memory error: " + err.Error())
 	}
 
 	pe.log("New args addr:", unsafe.Pointer(newAgrsAddr))
+	nop()
 	err = windows.WriteProcessMemory(pe.currentProcess, newAgrsAddr, &param[0], uintptr(len(param)), nil)
 	if err != nil {
-		return fmt.Errorf("write new agrs value to memory error: %v\n", err)
+		return errors.New("write new agrs value to memory error " + err.Error())
 	}
 
 	// mov rax, newParamAddr
@@ -219,13 +240,13 @@ func (pe *PeData) fixAgrs() error {
 	} {
 		funcGetCommandLineXAddr, err := kernelbase.FindProc(cmd)
 		if err != nil {
-			return fmt.Errorf("find %s address error: %v\n", cmd, err)
+			return errors.New("find " + cmd + " address error: " + err.Error())
 		}
 		pe.log("kernelbase.", cmd, " address", unsafe.Pointer(funcGetCommandLineXAddr.Addr()))
 
 		err = windows.WriteProcessMemory(pe.currentProcess, uintptr(unsafe.Pointer(funcGetCommandLineXAddr.Addr())), &commandLineWUpdate[0], uintptr(len(commandLineWUpdate)), nil)
 		if err != nil {
-			return fmt.Errorf("patched function kernelbase.%s error: %v\n", cmd, err)
+			return errors.New("patched function kernelbase." + cmd + " error: " + err.Error())
 		}
 
 		pe.log("patched function kernelbase.", cmd, commandLineWUpdate)
@@ -235,7 +256,7 @@ func (pe *PeData) fixAgrs() error {
 	pbiLen := uint32(unsafe.Sizeof(pbi))
 	err = windows.NtQueryInformationProcess(pe.currentProcess, windows.ProcessBasicInformation, unsafe.Pointer(&pbi), pbiLen, &pbiLen)
 	if err != nil {
-		return fmt.Errorf("call QueryInformationProcess error: %v\n", err)
+		return errors.New("call QueryInformationProcess error: " + err.Error())
 	}
 
 	pe.log("PebBase address:", unsafe.Pointer(pbi.PebBaseAddress))
@@ -285,6 +306,7 @@ func (pe *PeData) fixRelocTable(newAddr uintptr, oldAddr uintptr, relocDir *IMAG
 func (pe *PeData) execAsm() error {
 	// syscall.Syscall(pe.startAddress, 0, 0, 0, 0)
 	thread := CreateThread(pe.startAddress)
+	nop()
 	return WaitForSingleObject(thread, 0xFFFFFFFF)
 }
 
@@ -362,7 +384,7 @@ func runByChangeCommandLineValue() {
 		panic(err)
 	}
 
-	payload := "01" + utils.String2Unicode("E:\\abcd111111111111 44466666811119 123")
+	payload := "01" + utils.String2Unicode("E:\\a.exe a")
 	sc, err := hex.DecodeString(payload)
 	if err != nil {
 		fmt.Printf("\nError decoding shellcode: %s\n", err)

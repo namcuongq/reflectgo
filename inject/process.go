@@ -191,8 +191,8 @@ func (p *Proc) close() {
 	syscall.CloseHandle(p.stdErrPipeRead)
 	// syscall.CloseHandle(stdInPipeWrite)
 
-	windows.CloseHandle(windows.Handle(p.hProcess))
-	windows.CloseHandle(windows.Handle(p.hThread))
+	syscall.CloseHandle(syscall.Handle(p.hProcess))
+	syscall.CloseHandle(syscall.Handle(p.hThread))
 
 }
 
