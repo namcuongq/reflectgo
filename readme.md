@@ -1,4 +1,4 @@
-# Golang PE Loader
+# Golang PE Loader - Protect us from AV and EDR
 
 *** Only Support x64 ****
 
