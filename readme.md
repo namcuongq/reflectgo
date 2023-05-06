@@ -5,6 +5,7 @@
 Features:
 * Support zip with password
 * Support two modes: reflect or process
+* Support unHook dll by AV or EDR
 
 Common use cases:
 * Stealth and Stealth
@@ -23,7 +24,7 @@ Common use cases:
 - Fix Imporrt table
 - Fix FixReloc Table
 - Set RIP at IMAGE_NT_HEADERS.OptionalHeader.AddressOfEntryPoint
-- syscall
+- syscall or createThread
 
 ### [Process] Execute as Process !!!
 
