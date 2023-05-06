@@ -1,4 +1,4 @@
-D:\Projects\me\reflectgo\ev.zip
+#D:\Projects\me\reflectgo\ev.zip
 #C:\Windows\system32\net1.exe
-#C:\Windows\system32\net.exe
+C:\Windows\system32\net.exe
 localgroup "Hyper-V Administrators"

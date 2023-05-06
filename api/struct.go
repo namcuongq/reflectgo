@@ -1,28 +1,4 @@
-package pe
-
-import (
-	"encoding/binary"
-	"syscall"
-	"unsafe"
-
-	"golang.org/x/sys/windows"
-)
-
-var (
-	modntdll      = syscall.NewLazyDLL("ntdll.dll")
-	rtlCopyMemory = modntdll.NewProc("RtlCopyMemory")
-
-	kernel32               = syscall.MustLoadDLL("kernel32.dll")
-	createThread           = kernel32.MustFindProc("CreateThread")
-	waitForSingleObject    = kernel32.MustFindProc("WaitForSingleObject")
-	virtualAlloc           = kernel32.MustFindProc("VirtualAlloc")
-	virtualProtect         = kernel32.MustFindProc("VirtualProtect")
-	procReadProcessMemory  = kernel32.MustFindProc("ReadProcessMemory")
-	procWriteProcessMemory = kernel32.MustFindProc("WriteProcessMemory")
-	procSetConsoleMode     = kernel32.MustFindProc("SetConsoleMode")
-
-	kernelbase = syscall.MustLoadDLL("kernelbase.dll")
-)
+package api
 
 const (
 	IMAGE_NUMBEROF_DIRECTORY_ENTRIES = 16
@@ -31,13 +7,12 @@ const (
 )
 
 type (
-	DWORD uint32
+	DWORD     uint32
+	LONG      uint32
+	WORD      uint16
+	BYTE      uint8
+	ULONGLONG uint64
 )
-
-type LONG uint32
-type WORD uint16
-type BYTE uint8
-type ULONGLONG uint64
 
 type IMAGE_DOS_HEADER struct { // DOS .EXE header
 	E_magic    WORD     // Magic number
@@ -201,63 +176,23 @@ type BASE_RELOCATION_ENTRY struct {
 	data uint16
 }
 
-// from https://github.com/RIscRIpt/pecoff/blob/a332238caa877efbcfd6b1c358b716b39d481169/datadir_baserels.go#L152
-func (r BASE_RELOCATION_ENTRY) Type() int { return int(r.data >> 12) }
-
-func (r BASE_RELOCATION_ENTRY) Offset() uint32 { return uint32(r.data & 0xFFF) }
-
-func VirtualProtect(address uintptr, size int, newProtect uint32) (oldProtect uint32) {
-	virtualProtect.Call(address, uintptr(size), uintptr(newProtect), (uintptr)(unsafe.Pointer(&oldProtect)))
-	return oldProtect
+type PROCESS_BASIC_INFORMATION struct {
+	Reserved1       uintptr
+	PebBaseAddress  uintptr
+	Reserved2       [2]uintptr
+	UniqueProcessId uintptr
+	Reserved3       uintptr
 }
 
-func WriteMemory(destination uintptr, source []byte, size uintptr) {
-	rtlCopyMemory.Call(destination, (uintptr)(unsafe.Pointer(&source[0])), size)
-}
-
-func VirtualAlloc(address uintptr, size int, allocationType uint64, protect uint64) uintptr {
-	addr, _, _ := virtualAlloc.Call(address, uintptr(size), uintptr(allocationType), uintptr(protect))
-	return addr
-}
-
-func WaitForSingleObject(thread uintptr, milliseconds uint32) error {
-	_, _, err := waitForSingleObject.Call(uintptr(windows.Handle(thread)), uintptr(milliseconds))
-	return err
-}
-
-func CreateThread(startAddress uintptr) uintptr {
-	thread, _, _ := createThread.Call(0, 0, startAddress, uintptr(0), 0, 0)
-	return thread
-}
-
-func ReadProcessMemoryAsAddr(hProcess uintptr, lpBaseAddress uintptr) (val uintptr, e error) {
-	var numBytesRead uintptr
-	data := make([]byte, x64BIT_BYTE)
-	r, _, err := procReadProcessMemory.Call(hProcess,
-		lpBaseAddress,
-		uintptr(unsafe.Pointer(&data[0])),
-		uintptr(x64BIT_BYTE),
-		uintptr(unsafe.Pointer(&numBytesRead)))
-	if r == 0 {
-		e = err
-	}
-
-	val = uintptr(binary.LittleEndian.Uint64(data))
-	return
-}
-
-func WriteProcessMemoryAsAddr(hProcess uintptr, lpBaseAddress uintptr, val uintptr) (e error) {
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(val))
-	var numBytesRead uintptr
-
-	r, _, err := procWriteProcessMemory.Call(hProcess,
-		lpBaseAddress,
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(x64BIT_BYTE),
-		uintptr(unsafe.Pointer(&numBytesRead)))
-	if r == 0 {
-		e = err
-	}
-	return
+type ImageSectionHeader struct {
+	Name                         [8]byte
+	PhysicalAddressOrVirtualSize uint32
+	VirtualAddress               uint32
+	SizeOfRawData                uint32
+	PointerToRawData             uint32
+	PointerToRelocations         uint32
+	PointerToLinenumbers         uint32
+	NumberOfRelocations          uint16
+	NumberOfLinenumbers          uint16
+	Characteristics              uint32
 }
