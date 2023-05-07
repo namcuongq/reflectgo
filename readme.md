@@ -1,28 +1,31 @@
-# Golang PE Loader - Protect us from AV and EDR
+# Golang PE Loader - Protect yourself from AV and EDR
 
 *** Only Support x64 ****
 
 Features:
 * Support zip with password
 * Support two modes: reflect or process
-* Support unHook dll by AV or EDR
+* Support unHooking dll by AV or EDR (reflect only)
 
 Common use cases:
 * Stealth and Stealth
+* Protect yourself away from protective measures
 
 ## How it works
 *** Mode Reflect or Process ****
 
 ### [Reflect] Execute .exe file from memory !!!
 
-- Read .exe file
-- Parse pe file -> IMAGE_DOS_HEADER
-- IMAGE_DOS_HEADER.E_lfanew -> IMAGE_NT_HEADERS
-- IMAGE_NT_HEADERS.OptionalHeader.ImageBase -> VirtualAlloc
-- WriteMemory(IMAGE_NT_HEADERS.OptionalHeader.ImageBase, exe file, IMAGE_NT_HEADERS.OptionalHeader.SizeOfHeaders) 
-- Write All Sections to memory
+- Open .exe file
+- Read IMAGE_DOS_HEADER
+- From IMAGE_DOS_HEADER.E_lfanew get IMAGE_NT_HEADERS
+- Try to allocate a memory block of IMAGE_NT_HEADERS.OptionalHeader.ImageBase.SizeOfImage bytes at position IMAGE_NT_HEADERS.OptionalHeader.ImageBase
+      + if can't not allocate at position IMAGE_NT_HEADERS.OptionalHeader.ImageBase -> allocate at new localtion then update IMAGE_NT_HEADERS.OptionalHeader.ImageBase = new address
+- WriteMemory(IMAGE_NT_HEADERS.OptionalHeader.ImageBase, exe data, IMAGE_NT_HEADERS.OptionalHeader.SizeOfHeaders) 
+- Parse section headers and Write All Sections to memory
 - Fix Imporrt table
-- Fix FixReloc Table
+      + resolved by loading the corresponding libraries
+- If the allocated memory block differs from IMAGE_NT_HEADERS.OptionalHeader.ImageBase -> Update RelocTable
 - Set RIP at IMAGE_NT_HEADERS.OptionalHeader.AddressOfEntryPoint
 - syscall or createThread
 
@@ -31,6 +34,19 @@ Common use cases:
 - Create new suspend process with .exe file
 - Modify memory Where command line arguments are stored
 - Resume process
+
+### [unHooking] Stealth with AV and EDR
+
+- After successful peloader, get all modules dll in ImportTable
+- With each module:
+      + find the module address in memory(section .text address)
+      + Open dll on disk
+      + CreateFileMapping
+      + MapViewOfFile
+      + Overwrite section .text with origin content on disk (VirtualProtect if need)
+- Advance(develop):
+      + Replace (Open dll on disk + CreateFileMapping + MapViewOfFile) = ReflectPe(as above)
+      + Next step overwrite .text as above
 
 ## Usage
 

@@ -172,10 +172,6 @@ type PIMAGE_IMPORT_BY_NAME struct {
 	Name byte
 }
 
-type BASE_RELOCATION_ENTRY struct {
-	data uint16
-}
-
 type PROCESS_BASIC_INFORMATION struct {
 	Reserved1       uintptr
 	PebBaseAddress  uintptr

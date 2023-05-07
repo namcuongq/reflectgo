@@ -10,6 +10,10 @@ import (
 )
 
 // from https://github.com/RIscRIpt/pecoff/blob/a332238caa877efbcfd6b1c358b716b39d481169/datadir_baserels.go#L152
+type BASE_RELOCATION_ENTRY struct {
+	data uint16
+}
+
 func (r BASE_RELOCATION_ENTRY) Type() int { return int(r.data >> 12) }
 
 func (r BASE_RELOCATION_ENTRY) Offset() uint32 { return uint32(r.data & 0xFFF) }
@@ -78,7 +82,7 @@ func FindAllDLL(processId uintptr) ([]string, error) {
 	}
 	defer syscall.CloseHandle(syscall.Handle(p))
 
-	modulesHandles, err := EnumProcessModules(windows.Handle(p), 256)
+	modulesHandles, err := EnumProcessModules(p, 256)
 	if err != nil {
 		return modules, fmt.Errorf("EnumProcessModules %v error: %v", processId, err)
 	}

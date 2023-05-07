@@ -78,7 +78,6 @@ func (pe *PeData) unHook() error {
 	}
 
 	for _, module := range modules {
-		pe.log("\trestore", module)
 		pe.restoreDLL(pe.currentProcess, module)
 	}
 	return nil
@@ -89,6 +88,7 @@ func (pe *PeData) restoreDLL(currentProcess windows.Handle, module string) error
 	if err != nil {
 		return errors.New("LoadLibrary" + module + " err: " + err.Error())
 	}
+	defer windows.CloseHandle(libHandler)
 
 	var libInfo windows.ModuleInfo
 	err = windows.GetModuleInformation(currentProcess, libHandler, &libInfo, uint32(unsafe.Sizeof(libInfo)))
@@ -144,6 +144,7 @@ func (pe *PeData) restoreDLL(currentProcess windows.Handle, module string) error
 		if string(secName) == ".text" {
 			dllPath := "C:\\Windows\\System32\\" + module
 			if _, err := os.Stat(dllPath); err == nil {
+				pe.log("\trestore", module)
 				f, err := os.Open(dllPath)
 				if err != nil {
 					return errors.New("Open " + dllPath + " err: " + err.Error())
@@ -184,6 +185,12 @@ func (pe *PeData) restoreDLL(currentProcess windows.Handle, module string) error
 				if err != nil {
 					return errors.New("VirtualProtect err: " + err.Error())
 				}
+
+				err = syscall.UnmapViewOfFile(addr)
+				if err != nil {
+					return errors.New("UnmapViewOfFile err: " + err.Error())
+				}
+				windows.CloseHandle(windows.Handle(h))
 			}
 			break
 		}
