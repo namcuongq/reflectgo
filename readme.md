@@ -20,11 +20,11 @@ Common use cases:
 - Read IMAGE_DOS_HEADER
 - From IMAGE_DOS_HEADER.E_lfanew get IMAGE_NT_HEADERS
 - Try to allocate a memory block of IMAGE_NT_HEADERS.OptionalHeader.ImageBase.SizeOfImage bytes at position IMAGE_NT_HEADERS.OptionalHeader.ImageBase
-      + if can't not allocate at position IMAGE_NT_HEADERS.OptionalHeader.ImageBase -> allocate at new localtion then update IMAGE_NT_HEADERS.OptionalHeader.ImageBase = new address
+    * if can't not allocate at position IMAGE_NT_HEADERS.OptionalHeader.ImageBase -> allocate at new localtion then update IMAGE_NT_HEADERS.OptionalHeader.ImageBase = new address
 - WriteMemory(IMAGE_NT_HEADERS.OptionalHeader.ImageBase, exe data, IMAGE_NT_HEADERS.OptionalHeader.SizeOfHeaders) 
 - Parse section headers and Write All Sections to memory
 - Fix Imporrt table
-      + resolved by loading the corresponding libraries
+    * resolved by loading the corresponding libraries
 - If the allocated memory block differs from IMAGE_NT_HEADERS.OptionalHeader.ImageBase -> Update RelocTable
 - Set RIP at IMAGE_NT_HEADERS.OptionalHeader.AddressOfEntryPoint
 - syscall or createThread
@@ -39,14 +39,14 @@ Common use cases:
 
 - After successful peloader, get all modules dll in ImportTable
 - With each module:
-      + find the module address in memory(section .text address)
-      + Open dll on disk
-      + CreateFileMapping
-      + MapViewOfFile
-      + Overwrite section .text with origin content on disk (VirtualProtect if need)
+    * find the module address in memory(section .text address)
+    * Open dll on disk
+    * CreateFileMapping
+    * MapViewOfFile
+    * Overwrite section .text with origin content on disk (VirtualProtect if need)
 - Advance(develop):
-      + Replace (Open dll on disk + CreateFileMapping + MapViewOfFile) = ReflectPe(as above)
-      + Next step overwrite .text as above
+    * Replace (Open dll on disk + CreateFileMapping + MapViewOfFile) = ReflectPe(as above)
+    * Next step overwrite .text as above
 
 ## Usage
 
